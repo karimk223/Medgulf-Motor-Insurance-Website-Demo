@@ -31,15 +31,15 @@ if($_SERVER['REQUEST_METHOD'] !== 'POST'){
 }
 
 $old = [
-    'vehicle_type'   => $_POST['vehicle_type'] ?? '',
-    'vehicle_number' => $_POST['vehicle_number'] ?? '',
-    'plate_letter'   => $_POST['plate_letter'] ?? '',
-    'plate_numbers'  => $_POST['plate_numbers'] ?? '',
-    'inception_date' => $_POST['inception_date'] ?? '',
-    'insurance_type' => $_POST['insurance_type'] ?? [],
-    'car_value'      => $_POST['car_value'] ?? '',
-    'year_built'     => $_POST['year_built'] ?? '',
-    'package_option'   => $_POST['package_option'] ?? '',
+    'vehicle_type'    => $_POST['vehicle_type'] ?? '',
+    'vehicle_number'  => $_POST['vehicle_number'] ?? '',
+    'plate_letter'    => $_POST['plate_letter'] ?? '',
+    'plate_numbers'   => $_POST['plate_numbers'] ?? '',
+    'inception_date'  => $_POST['inception_date'] ?? '',
+    'insurance_type'  => $_POST['insurance_type'] ?? [],
+    'car_value'       => $_POST['car_value'] ?? '',
+    'year_built'      => $_POST['year_built'] ?? '',
+    'package_option'  => $_POST['package_option'] ?? '',
 ];
 
 $errors = [];
@@ -53,8 +53,23 @@ $insurance_types = $old['insurance_type'];
 if(!is_array($insurance_types)) $insurance_types = [];
 
 if($vehicle_type === '')   $errors['vehicle_type']   = "Vehicle type/model is required.";
-if($vehicle_number === '') $errors['vehicle_number'] = "Vehicle number is required.";
+if($vehicle_number === '') $errors['vehicle_number'] = "Chassis is required.";
 if($inception_date === '') $errors['inception_date'] = "Inception date is required.";
+
+$plate_letter_u = strtoupper($plate_letter);
+$plate_numbers_u = $plate_numbers;
+
+$has_letter = ($plate_letter_u !== '');
+$has_numbers = ($plate_numbers_u !== '');
+
+if(($has_letter && !$has_numbers) || (!$has_letter && $has_numbers)){
+    $errors['plate_numbers'] = "Enter both plate letter and numbers, or leave both empty.";
+}
+
+$license_plate = null;
+if($has_letter && $has_numbers){
+    $license_plate = $plate_letter_u . $plate_numbers_u;
+}
 
 if(empty($insurance_types)){
     $errors['insurance_type'] = "Please select at least one insurance type.";
@@ -110,8 +125,6 @@ if(!empty($errors)){
     backWithErrors($errors, $old);
 }
 
-$license_plate = $plate_letter . $plate_numbers;
-
 function saveUploadsExactCount($files, $prefix, $upload_dir_fs, $requiredCount, &$destArr, &$savedPaths){
     $okFiles = [];
     foreach($files['error'] as $i => $err){
@@ -153,18 +166,18 @@ $savedPaths = [];
 
 try {
 
-    $stmt = $conn->prepare("SELECT vehicle_id, client_id FROM vehicles WHERE license_plate=? LIMIT 1");
-    $stmt->bind_param("s", $license_plate);
+    $stmt = $conn->prepare("SELECT vehicle_id, client_id FROM vehicles WHERE vehicle_number=? LIMIT 1");
+    $stmt->bind_param("s", $vehicle_number);
     $stmt->execute();
     $stmt->bind_result($found_vehicle_id, $found_client_id);
-    $hasPlate = $stmt->fetch();
+    $hasChassis = $stmt->fetch();
     $stmt->close();
 
-    if($hasPlate){
+    if($hasChassis){
         $vehicle_id = (int)$found_vehicle_id;
-        $plate_owner = (int)$found_client_id;
+        $chassis_owner = (int)$found_client_id;
 
-        if($plate_owner !== (int)$client_id){
+        if($chassis_owner !== (int)$client_id){
             $stmt = $conn->prepare("SELECT COUNT(*) FROM requests WHERE vehicle_id=? AND status IN ('Pending','Processed')");
             $stmt->bind_param("i", $vehicle_id);
             $stmt->execute();
@@ -173,24 +186,39 @@ try {
             $stmt->close();
 
             if((int)$active_cnt > 0){
-                throw new Exception("This license plate is already under review/active for another client. You cannot use this plate.");
+                throw new Exception("This chassis is already under review/active for another client. You cannot use this chassis.");
             }
 
-            $stmt = $conn->prepare("UPDATE vehicles SET client_id=?, model_car=?, vehicle_number=? WHERE vehicle_id=?");
-            $stmt->bind_param("issi", $client_id, $vehicle_type, $vehicle_number, $vehicle_id);
+            if($license_plate === null){
+                $stmt = $conn->prepare("UPDATE vehicles SET client_id=?, model_car=?, license_plate=NULL WHERE vehicle_id=?");
+                $stmt->bind_param("isi", $client_id, $vehicle_type, $vehicle_id);
+            } else {
+                $stmt = $conn->prepare("UPDATE vehicles SET client_id=?, model_car=?, license_plate=? WHERE vehicle_id=?");
+                $stmt->bind_param("issi", $client_id, $vehicle_type, $license_plate, $vehicle_id);
+            }
             $stmt->execute();
             $stmt->close();
 
         } else {
-            $stmt = $conn->prepare("UPDATE vehicles SET model_car=?, vehicle_number=? WHERE vehicle_id=? AND client_id=?");
-            $stmt->bind_param("ssii", $vehicle_type, $vehicle_number, $vehicle_id, $client_id);
+            if($license_plate === null){
+                $stmt = $conn->prepare("UPDATE vehicles SET model_car=?, license_plate=NULL WHERE vehicle_id=? AND client_id=?");
+                $stmt->bind_param("sii", $vehicle_type, $vehicle_id, $client_id);
+            } else {
+                $stmt = $conn->prepare("UPDATE vehicles SET model_car=?, license_plate=? WHERE vehicle_id=? AND client_id=?");
+                $stmt->bind_param("ssii", $vehicle_type, $license_plate, $vehicle_id, $client_id);
+            }
             $stmt->execute();
             $stmt->close();
         }
 
     } else {
-        $stmt = $conn->prepare("INSERT INTO vehicles (client_id, model_car, license_plate, vehicle_number) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("isss", $client_id, $vehicle_type, $license_plate, $vehicle_number);
+        if($license_plate === null){
+            $stmt = $conn->prepare("INSERT INTO vehicles (client_id, model_car, license_plate, vehicle_number) VALUES (?, ?, NULL, ?)");
+            $stmt->bind_param("iss", $client_id, $vehicle_type, $vehicle_number);
+        } else {
+            $stmt = $conn->prepare("INSERT INTO vehicles (client_id, model_car, license_plate, vehicle_number) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("isss", $client_id, $vehicle_type, $license_plate, $vehicle_number);
+        }
         $stmt->execute();
         $vehicle_id = (int)$stmt->insert_id;
         $stmt->close();
@@ -231,14 +259,16 @@ try {
     }
 
     $is_allrisk = in_array("All Risk", $insurance_types);
-    $car_value_db = $is_allrisk ? $car_value : NULL;
-    $year_built_db = $is_allrisk ? $year_built : NULL;
-    $package_option_db = $is_allrisk ? $package_option : NULL;
 
-    $stmt = $conn->prepare("INSERT INTO requests (client_id, vehicle_id, inception_date, car_value, year_built, package_option, processed, status) VALUES (?, ?, ?, ?, ?, ?, 0, 'Pending')");
+    if($is_allrisk){
+        $stmt = $conn->prepare("INSERT INTO requests (client_id, vehicle_id, inception_date, car_value, year_built, package_option, processed, status) VALUES (?, ?, ?, ?, ?, ?, 0, 'Pending')");
+        $stmt->bind_param("iisdis", $client_id, $vehicle_id, $inception_date, $car_value, $year_built, $package_option);
+    } else {
+        $stmt = $conn->prepare("INSERT INTO requests (client_id, vehicle_id, inception_date, processed, status) VALUES (?, ?, ?, 0, 'Pending')");
+        $stmt->bind_param("iis", $client_id, $vehicle_id, $inception_date);
+    }
+
     if(!$stmt){ die($conn->error); }
-
-    $stmt->bind_param("iisdis", $client_id, $vehicle_id, $inception_date, $car_value_db, $year_built_db, $package_option_db);
     $stmt->execute();
     $request_id = (int)$stmt->insert_id;
     $stmt->close();
@@ -289,7 +319,8 @@ try {
     $stmt->close();
 
     $notif_title = "New request submitted";
-    $notif_message = "Request #{$request_id} • Plate {$license_plate} • " . implode(", ", $selected_types) . " • Inception {$inception_date}";
+    $plateTxt = ($license_plate === null) ? "N/A" : $license_plate;
+    $notif_message = "Request #{$request_id} • Chassis {$vehicle_number} • Plate {$plateTxt} • " . implode(", ", $selected_types) . " • Inception {$inception_date}";
     $stmtN = $conn->prepare("INSERT INTO employee_notifications (request_id, title, message) VALUES (?, ?, ?)");
     $stmtN->bind_param("iss", $request_id, $notif_title, $notif_message);
     $stmtN->execute();
