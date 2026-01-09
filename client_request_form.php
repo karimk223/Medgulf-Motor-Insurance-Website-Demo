@@ -3,7 +3,6 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-
 session_start();
 if(!isset($_SESSION['client_id'])){
     header("Location: client_login.php");
@@ -147,7 +146,7 @@ function errMsg($key){
 
           <div class="mb-3 row">
             <div class="col-md-5">
-              <label class="form-label">License Plate Numbers </label>
+              <label class="form-label">License Plate Numbers</label>
               <input type="text"
                      inputmode="numeric"
                      pattern="[0-9]*"
@@ -160,7 +159,7 @@ function errMsg($key){
               <?php endif; ?>
             </div>
             <div class="col-md-3">
-              <label class="form-label">License Plate Letter </label>
+              <label class="form-label">License Plate Letter</label>
               <select name="plate_letter"
                       class="form-select <?= hasErr('plate_letter') ? 'is-invalid' : '' ?>">
                 <option value="">Select</option>
@@ -219,7 +218,7 @@ function errMsg($key){
                        inputmode="numeric"
                        maxlength="4"
                        pattern="[0-9]*"
-                       oninput="this.value=this.value.replace(/[^0-9]/g,'')"
+                       oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,4)"
                        class="form-control <?= hasErr('year_built') ? 'is-invalid' : '' ?>"
                        value="<?= old('year_built') ?>">
                 <?php if(hasErr('year_built')): ?>
